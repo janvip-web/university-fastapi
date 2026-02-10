@@ -16,5 +16,7 @@ class Course(Base):
     student_id: Mapped[int] = mapped_column(ForeignKey("students.s_id"))
     faculty_id: Mapped[int] = mapped_column(ForeignKey("faculties.f_id"))
 
+    # one to many between student and course
     student:Mapped["Student"] = relationship("Student", back_populates="courses" )
+    # one to many between faculty and course
     faculty: Mapped["Faculty"] = relationship("Faculty", back_populates="courses")

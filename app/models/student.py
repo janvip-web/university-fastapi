@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.models.course import Course
+    from app.models.faculty import Faculty
+    from app.models.association import Association
 
 class Student(Base):
     __tablename__="students"
@@ -20,4 +22,11 @@ class Student(Base):
     This does NOT create a column
     This does NOT hit the database immediately   
     """
+    # one to many between student and course
     courses: Mapped[list["Course"]] = relationship("Course", back_populates="student")
+
+    #many to many between student and faculty
+    faculties: Mapped[list["Faculty"]] = relationship(secondary="association_table", back_populates="students", viewonly=True)
+
+    # association between student -> association -> faculty
+    faculty_associations: Mapped[list["Association"]] = relationship("Association",back_populates="student")

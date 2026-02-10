@@ -59,6 +59,21 @@ class FacultyReadResponse(BaseModel):
     f_id:int
     f_name:str
 
+class CourseResponse(BaseModel):
+    c_id: int
+    c_name: str
+
+class StudentWithCoursesResponse(BaseModel):
+    s_id: int
+    s_name: str
+    s_email: str
+    courses: list[CourseResponse]
+
+class FacultyWithCoursesesponse(BaseModel):
+    f_id: int
+    f_name: str
+    courses: list[CourseResponse]
+
 
 # async def get_students(db: AsyncSession):
 #     result = await db.execute()
@@ -115,18 +130,9 @@ async def students_with_courses_joins(db: AsyncSession = Depends(get_db)) -> lis
 
     # return list(data.values())
 
-class CourseResponse(BaseModel):
-    c_id: int
-    c_name: str
-
-class StudentWithCoursesResponse(BaseModel):
-    s_id: int
-    s_name: str
-    s_email: str
-    courses: list[CourseResponse]
 
 @app.get("/student-course/orm",tags=[Tags.students])
-async def students_with_courses_joins(db: AsyncSession = Depends(get_db)) -> list[StudentWithCoursesResponse]:
+async def students_with_courses_orm(db: AsyncSession = Depends(get_db)) -> list[StudentWithCoursesResponse]:
     result = await db.execute(
         select(Student).options(selectinload(Student.courses))
     )
@@ -192,18 +198,23 @@ async def get_faculties(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Faculty))
     return result.scalars().all()
 
-@app.get("/faculty-course/", tags=[Tags.faculties])
-async def faculties_with_courses(db: AsyncSession = Depends(get_db)):
+class FacultyCourseRow(BaseModel):
+    f_id: int
+    f_name: str
+    c_id: int | None
+    c_name: str | None
+
+@app.get("/faculty-course/joins", tags=[Tags.faculties])
+async def faculties_with_courses(db: AsyncSession = Depends(get_db))-> list[FacultyCourseRow]:
     result = await db.execute(
         select(Faculty.f_id,
                Faculty.f_name,
                Course.c_id,
                Course.c_name
-        ).join(Course.student, Course.faculty_id == Faculty.f_id, isouter=True)
+        ).join(Course, Course.faculty_id == Faculty.f_id, isouter=True)
     )
-    rows = result.all()
-    data = {}
-
+    return result.all()
+    # data = {}
     # for row in rows:
     #     if row.f_id not in data:
     #         data[row.f_id] = {
@@ -216,8 +227,14 @@ async def faculties_with_courses(db: AsyncSession = Depends(get_db)):
     #             "c_id": row.c_id,
     #             "c_name": row.c_name,
     #         })
+    # return list(data.values())
 
-    return list(data.values())
+@app.get("/faculty-course/orm",tags=[Tags.faculties])
+async def faculties_with_courses_orm(db: AsyncSession = Depends(get_db)) -> list[FacultyWithCoursesesponse]:
+    result = await db.execute(
+        select(Faculty).options(selectinload(Faculty.courses))
+    )
+    return result.scalars().all()
 
 
 

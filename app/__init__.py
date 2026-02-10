@@ -1,2 +1,2 @@
 from app.database import engine, AsyncSessionLocal, Base
-from app.models import Student, Course, Faculty
+from app.models import Student, Course, Faculty, Association
