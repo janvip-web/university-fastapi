@@ -1,12 +1,12 @@
 from fastapi import FastAPI, HTTPException, status, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.database import get_db
 from enum import Enum
-from app.models import Student, Course, Faculty
+from app.models import Student, Course, Faculty, Association
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import aliased, selectinload
+from sqlalchemy.orm import aliased, selectinload, load_only, with_expression, contains_eager,joinedload
 from fastapi.responses import JSONResponse
 
 
@@ -26,6 +26,7 @@ class Tags(Enum):
     students = "students"
     faculties = "faculties"
     courses = "courses" 
+    associations = "associations"
 
 class CourseCreateRequest(BaseModel):
     name:str
@@ -66,7 +67,7 @@ class CourseResponse(BaseModel):
 class StudentWithCoursesResponse(BaseModel):
     s_id: int
     s_name: str
-    s_email: str
+    s_email: str 
     courses: list[CourseResponse]
 
 class FacultyWithCoursesesponse(BaseModel):
@@ -90,6 +91,18 @@ async def get_students(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Student))
     return result.scalars().all()
 
+#  column loading options
+@app.get("/students/basic", tags=[Tags.students])
+async def get_students_basic(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Student).options(
+            load_only(Student.s_id), 
+            with_expression(Student.s_name,func.upper(Student.s_name)),
+            selectinload(Student.courses).defer(Course.faculty_id)
+        )
+    )
+    return result.scalars().all()
+
 
 class StudentCourseRow(BaseModel):
     s_id: int
@@ -98,37 +111,27 @@ class StudentCourseRow(BaseModel):
     c_id: int | None
     c_name: str | None
 
-
+# contain
 @app.get("/student-course/joins", tags=[Tags.students])
-async def students_with_courses_joins(db: AsyncSession = Depends(get_db)) -> list[StudentCourseRow]:
-    stu = aliased(Student, name="stu")
-    cou = aliased(Course, name="cou")
-    result = await db.execute(
-        select(stu.s_id,
-               stu.s_name,
-               stu.s_email,
-               cou.c_id,
-               cou.c_name
-        ).join(cou, cou.student_id == stu.s_id, isouter=True)
+# async def students_with_courses_joins(db: AsyncSession = Depends(get_db)) -> list[StudentCourseRow]:
+async def students_with_courses_joins(db: AsyncSession = Depends(get_db)):
+    # stu = aliased(Student, name="stu")
+    # cou = aliased(Course, name="cou")
+    # result = await db.execute(
+    #     select(stu.s_id,
+    #            stu.s_name,
+    #            stu.s_email,
+    #            cou.c_id,
+    #            cou.c_name
+    #     ).join(cou, cou.student_id == stu.s_id, isouter=True)
         # ).join(cou.student, isouter=True)
-    )
-    return result.all()
-    # data = {}
-    # for row in rows:
-    #     if row.s_id not in data:
-    #         data[row.s_id] = {
-    #             "s_id": row.s_id,
-    #             "s_name": row.s_name,
-    #             "s_email": row.s_email,
-    #             "courses": [],
-    #         }
-    #     if row.c_id:
-    #         data[row.s_id]["courses"].append({
-    #             "c_id": row.c_id,
-    #             "c_name": row.c_name,
-    #         })
+        # )
 
-    # return list(data.values())
+    result = await db.execute(
+        select(Student).join(Student.courses).options(contains_eager(Student.courses).defer(Course.faculty_id))
+    )
+    return result.unique().scalars().all()
+
 
 
 @app.get("/student-course/orm",tags=[Tags.students])
@@ -137,6 +140,46 @@ async def students_with_courses_orm(db: AsyncSession = Depends(get_db)) -> list[
         select(Student).options(selectinload(Student.courses))
     )
     return result.scalars().all()
+
+
+
+@app.get("/students/joined")
+async def get_students_joined(db: AsyncSession = Depends(get_db)):
+    stmt = (
+        select(Student)
+        .options(
+            joinedload(Student.courses)
+            .joinedload(Course.faculty)
+        )
+    )
+    result = await db.execute(stmt)
+    return result.scalars().unique().all()
+
+class StudentWithFacultiesResponse(BaseModel):
+    s_id: int
+    s_name: str
+    s_email: str
+    faculties: list[FacultyReadResponse]
+
+
+# @app.get("/student-faculty/orm", tags=[Tags.students])
+# async def students_with_faculties(db: AsyncSession = Depends(get_db)):
+#     result = await db.execute(
+#         select(Student).options(load_only(Student.s_id, Student.s_name),selectinload(Student.faculties)
+#                                 )  # student.faculty_association -> association.faculty
+#     )
+#     return result.scalars().all()
+
+
+@app.get("/student-faculty/orm", tags=[Tags.students])
+async def students_with_faculties(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Student).options(load_only(Student.s_id, Student.s_name),selectinload(Student.faculty_associations)
+                                .selectinload(Association.faculty)
+                                )  # student.faculty_association -> association.faculty
+    )
+    return result.scalars().all()
+
 
 
 @app.get("/students/{student_id}", tags=[Tags.students], deprecated=True)
@@ -296,7 +339,23 @@ async def remove_course(course_id: int, db:AsyncSession=Depends(get_db)):
     }
 
 
+class AssociationCreateRequest(BaseModel):
+    s_id:int
+    f_id:int
 
+class AssociationReadResponse(BaseModel):
+    association_id:int
+    student_id:int
+    faculty_id:int
+
+@app.post("/association/", tags=[Tags.associations],  status_code=201)
+async def create_course(asso_req: AssociationCreateRequest, db: AsyncSession = Depends(get_db)) -> AssociationReadResponse:
+    db_asso = Association(student_id = asso_req.s_id, faculty_id = asso_req.f_id)
+    db.add(db_asso)
+    # await db.commit()
+    await db.flush()
+    await db.refresh(db_asso)
+    return db_asso
 
 
 

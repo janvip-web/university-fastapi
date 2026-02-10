@@ -20,7 +20,7 @@ class Faculty(Base):
     courses: Mapped[list["Course"]] = relationship("Course", back_populates="faculty")
 
        #many to many between student and faculty
-    students: Mapped[list["Student"]] = relationship(secondary="association_table", back_populates="faculties", viewonly=True)
+    # students: Mapped[list["Student"]] = relationship(secondary="association_table", back_populates="faculties", viewonly=True)
 
     # association between student -> association -> faculty
     student_associations: Mapped[list["Association"]] = relationship(back_populates="faculty")
