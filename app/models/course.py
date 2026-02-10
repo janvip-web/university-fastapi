@@ -1,6 +1,12 @@
 from app.database import Base
 from sqlalchemy.orm import mapped_column, Mapped, relationship
 from sqlalchemy import String, ForeignKey
+from typing import TYPE_CHECKING
+# from app.models.student import Student
+
+if TYPE_CHECKING:
+    from app.models.student import Student
+    from app.models.faculty import Faculty
 
 class Course(Base):
     __tablename__="courses"
@@ -10,4 +16,5 @@ class Course(Base):
     student_id: Mapped[int] = mapped_column(ForeignKey("students.s_id"))
     faculty_id: Mapped[int] = mapped_column(ForeignKey("faculties.f_id"))
 
-    student = relationship("Student", back_populates="courses")
+    student:Mapped["Student"] = relationship("Student", back_populates="courses" )
+    faculty: Mapped["Faculty"] = relationship("Faculty", back_populates="courses")

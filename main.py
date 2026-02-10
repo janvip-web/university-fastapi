@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, status, Depends
+from fastapi import FastAPI, HTTPException, status, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -6,9 +6,21 @@ from app.database import get_db
 from enum import Enum
 from app.models import Student, Course, Faculty
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, selectinload
+from fastapi.responses import JSONResponse
+
 
 app = FastAPI()
+
+# globally exception handler
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError):
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={
+            "detail": "Email already exists"
+        },
+    )
 
 class Tags(Enum):
     students = "students"
@@ -26,9 +38,14 @@ class CourseReadResponse(BaseModel):
     student_id:int
     faculty_id:int
 
+
+
 class StudentCreateRequest(BaseModel):
     name: str
     email: str
+
+class StudentBulkCreateRequest(BaseModel):
+    students: list[StudentCreateRequest]
 
 class StudentReadResponse(BaseModel):
     s_id: int
@@ -58,8 +75,17 @@ async def get_students(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Student))
     return result.scalars().all()
 
-@app.get("/student-course/", tags=[Tags.students])
-async def students_with_courses(db: AsyncSession = Depends(get_db)):
+
+class StudentCourseRow(BaseModel):
+    s_id: int
+    s_name: str
+    s_email: str
+    c_id: int | None
+    c_name: str | None
+
+
+@app.get("/student-course/joins", tags=[Tags.students])
+async def students_with_courses_joins(db: AsyncSession = Depends(get_db)) -> list[StudentCourseRow]:
     stu = aliased(Student, name="stu")
     cou = aliased(Course, name="cou")
     result = await db.execute(
@@ -69,10 +95,10 @@ async def students_with_courses(db: AsyncSession = Depends(get_db)):
                cou.c_id,
                cou.c_name
         ).join(cou, cou.student_id == stu.s_id, isouter=True)
+        # ).join(cou.student, isouter=True)
     )
-    rows = result.all()
-    data = {}
-
+    return result.all()
+    # data = {}
     # for row in rows:
     #     if row.s_id not in data:
     #         data[row.s_id] = {
@@ -87,29 +113,63 @@ async def students_with_courses(db: AsyncSession = Depends(get_db)):
     #             "c_name": row.c_name,
     #         })
 
-    return list(data.values())
+    # return list(data.values())
+
+class CourseResponse(BaseModel):
+    c_id: int
+    c_name: str
+
+class StudentWithCoursesResponse(BaseModel):
+    s_id: int
+    s_name: str
+    s_email: str
+    courses: list[CourseResponse]
+
+@app.get("/student-course/orm",tags=[Tags.students])
+async def students_with_courses_joins(db: AsyncSession = Depends(get_db)) -> list[StudentWithCoursesResponse]:
+    result = await db.execute(
+        select(Student).options(selectinload(Student.courses))
+    )
+    return result.scalars().all()
 
 
-@app.get("/students/{student_id}", response_model=StudentReadResponse, tags=[Tags.students], deprecated=True)
-async def get_student(student_id: int, db:AsyncSession = Depends(get_db)):
+@app.get("/students/{student_id}", tags=[Tags.students], deprecated=True)
+async def get_student(student_id: int, db:AsyncSession = Depends(get_db))->StudentReadResponse:
     student = await db.execute(select(Student).where(Student.s_id==student_id))
     return student.scalar()
     # student = result.scalar_one_or_none() - better altrnative
 
 
-@app.post("/students/", tags=[Tags.students], response_model =StudentReadResponse, status_code=201)
-async def create_student(student_req: StudentCreateRequest, db: AsyncSession = Depends(get_db)):
+@app.post("/students/", tags=[Tags.students], status_code=201)
+async def create_student(student_req: StudentCreateRequest, db: AsyncSession = Depends(get_db)) -> StudentReadResponse:
     db_student = Student(s_name = student_req.name, s_email=student_req.email)
     db.add(db_student)
-    try:
-        await db.commit()
-        await db.refresh(db_student)
-        return db_student
+    # try:
+    #     await db.commit()
+    await db.flush()
+    await db.refresh(db_student)
+    return db_student
     
-    except IntegrityError:
-        await db.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="email must be unique")
+    # except IntegrityError:
+    #     await db.rollback()
+    #     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="email must be unique")
     
+    
+    
+@app.post("/students/bulk", tags=[Tags.students], status_code=201)
+async def create_bulk_student(student: StudentBulkCreateRequest, db: AsyncSession = Depends(get_db)) -> list[StudentReadResponse]:
+    db_students = [Student(s_name = s.name, s_email = s.email) for s in student.students]
+    db.add_all(db_students)
+    # try:
+    #     await db.commit()
+        # await db.refresh(db_students)
+    await db.flush()
+    return db_students
+    # except IntegrityError:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_409_CONFLICT,
+    #         detail="One or more emails already exist",
+    #     )
 
     
 @app.delete("/students/{student_id}", tags=[Tags.students])
@@ -119,7 +179,7 @@ async def remove_student(student_id: int, db:AsyncSession=Depends(get_db)):
     if not student:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
     await db.delete(student)
-    await db.commit()
+    # await db.commit()
     return {
         "message": "Student deleted successfully",
         "student_id": student_id,
@@ -139,7 +199,7 @@ async def faculties_with_courses(db: AsyncSession = Depends(get_db)):
                Faculty.f_name,
                Course.c_id,
                Course.c_name
-        ).join(Course, Course.faculty_id == Faculty.f_id, isouter=True)
+        ).join(Course.student, Course.faculty_id == Faculty.f_id, isouter=True)
     )
     rows = result.all()
     data = {}
@@ -161,17 +221,17 @@ async def faculties_with_courses(db: AsyncSession = Depends(get_db)):
 
 
 
-@app.get("/faculty/{faculty_id}", response_model=FacultyReadResponse, tags=[Tags.faculties], deprecated=True)
-async def get_faculty(faculty_id: int, db:AsyncSession = Depends(get_db)):
+@app.get("/faculty/{faculty_id}", tags=[Tags.faculties], deprecated=True)
+async def get_faculty(faculty_id: int, db:AsyncSession = Depends(get_db)) -> FacultyReadResponse:
     faculty = await db.execute(select(Faculty).where(Faculty.f_id==faculty_id))
-    return faculty.scalars().first()
+    return faculty.scalar()
 
 
-@app.post("/faculties/", tags=[Tags.faculties], response_model =FacultyReadResponse, status_code=201)
-async def create_faculties(faculty_req: FacultyCreateRequest, db: AsyncSession = Depends(get_db)):
+@app.post("/faculties/", tags=[Tags.faculties], status_code=201)
+async def create_faculties(faculty_req: FacultyCreateRequest, db: AsyncSession = Depends(get_db)) -> FacultyReadResponse:
     db_faculty = Faculty(f_name = faculty_req.name)
     db.add(db_faculty)
-    await db.commit()
+    await db.flush()
     await db.refresh(db_faculty)
     return db_faculty
 
@@ -182,7 +242,7 @@ async def remove_facuty(faculty_id: int, db:AsyncSession=Depends(get_db)):
     if not faculty:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Faculty not found")
     await db.delete(faculty)
-    await db.commit()
+    # await db.commit()
     return {
         "message": "faculty deleted successfully",
         "student_id": faculty_id,
@@ -191,11 +251,12 @@ async def remove_facuty(faculty_id: int, db:AsyncSession=Depends(get_db)):
 
 # courses
 
-@app.post("/courses/", tags=[Tags.courses], response_model =CourseReadResponse, status_code=201)
-async def create_course(course_req: CourseCreateRequest, db: AsyncSession = Depends(get_db)):
+@app.post("/courses/", tags=[Tags.courses],  status_code=201)
+async def create_course(course_req: CourseCreateRequest, db: AsyncSession = Depends(get_db)) -> CourseReadResponse:
     db_course = Course(c_name = course_req.name, student_id = course_req.s_id, faculty_id = course_req.f_id)
     db.add(db_course)
-    await db.commit()
+    # await db.commit()
+    await db.flush()
     await db.refresh(db_course)
     return db_course
 
@@ -211,7 +272,7 @@ async def remove_course(course_id: int, db:AsyncSession=Depends(get_db)):
     if not course:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="course not found")
     await db.delete(course)
-    await db.commit()
+    # await db.commit()
     return {
         "message": "course deleted successfully",
         "student_id": course_id,

@@ -1,6 +1,11 @@
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from sqlalchemy import String
+from typing import TYPE_CHECKING
+# from app.models.course import Course
+
+if TYPE_CHECKING:
+    from app.models.course import Course
 
 class Student(Base):
     __tablename__="students"
@@ -15,4 +20,4 @@ class Student(Base):
     This does NOT create a column
     This does NOT hit the database immediately   
     """
-    courses = relationship("Course", back_populates="student")
+    courses: Mapped[list["Course"]] = relationship("Course", back_populates="student")
