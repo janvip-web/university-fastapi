@@ -13,7 +13,7 @@ class Course(Base):
 
     c_id: Mapped[int] = mapped_column(primary_key=True)
     c_name: Mapped[str] = mapped_column(String(50))
-    student_id: Mapped[int] = mapped_column(ForeignKey("students.s_id"))
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.s_id", ondelete="SET NULL", onupdate="CASCADE"),  nullable=True)
     faculty_id: Mapped[int] = mapped_column(ForeignKey("faculties.f_id"))
 
     # one to many between student and course

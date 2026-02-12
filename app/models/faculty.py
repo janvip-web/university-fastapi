@@ -23,4 +23,9 @@ class Faculty(Base):
     # students: Mapped[list["Student"]] = relationship(secondary="association_table", back_populates="faculties", viewonly=True)
 
     # association between student -> association -> faculty
-    student_associations: Mapped[list["Association"]] = relationship(back_populates="faculty")
+    student_associations: Mapped[list["Association"]] = relationship("Association",back_populates="faculty", cascade="all,delete-orphan", passive_deletes=True)
+
+
+    # passive_deletes=True: 
+    # The ORM only deletes the parent object in memory, 
+    # assuming the database will handle removing the related children via a foreign key constraint, resulting in no SELECT for children.

@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, status, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update, delete
 from app.database import get_db
 from enum import Enum
 from app.models import Student, Course, Faculty, Association
@@ -49,7 +49,7 @@ class StudentBulkCreateRequest(BaseModel):
     students: list[StudentCreateRequest]
 
 class StudentReadResponse(BaseModel):
-    s_id: int
+    s_id: int 
     s_name: str
     s_email: str
 
@@ -190,14 +190,19 @@ async def get_student(student_id: int, db:AsyncSession = Depends(get_db))->Stude
 
 
 @app.post("/students/", tags=[Tags.students], status_code=201)
-async def create_student(student_req: StudentCreateRequest, db: AsyncSession = Depends(get_db)) -> StudentReadResponse:
-    db_student = Student(s_name = student_req.name, s_email=student_req.email)
-    db.add(db_student)
+async def create_student(student_req: StudentCreateRequest, db: AsyncSession = Depends(get_db))->StudentReadResponse:
+
+    async with db.begin_nested():
+        db_student = Student(s_name = student_req.name, s_email=student_req.email)
+        db.add(db_student)
     # try:
     #     await db.commit()
-    await db.flush()
-    await db.refresh(db_student)
+    # await db.flush()
+    # await db.refresh(db_student)
     return db_student
+    # return {
+    #     "message": "Student created successfully"
+    # }
     
     # except IntegrityError:
     #     await db.rollback()
@@ -212,7 +217,7 @@ async def create_bulk_student(student: StudentBulkCreateRequest, db: AsyncSessio
     # try:
     #     await db.commit()
         # await db.refresh(db_students)
-    await db.flush()
+    # await db.flush()
     return db_students
     # except IntegrityError:
     #     raise HTTPException(
@@ -220,11 +225,52 @@ async def create_bulk_student(student: StudentBulkCreateRequest, db: AsyncSessio
     #         detail="One or more emails already exist",
     #     )
 
+@app.put("/students/{student_id}", tags=[Tags.students])
+async def update_student(student_id: int,student_req: StudentCreateRequest,db: AsyncSession = Depends(get_db)):
+    stmt = (update(Student)
+        .where(Student.s_id == student_id)
+        .values(s_name=student_req.name,s_email=student_req.email)
+    )
+
+    result = await db.execute(stmt)
+
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    return {"message": "Student updated successfully"}
+
+
+@app.patch("/students/{student_id}", tags=[Tags.students])
+async def update_student(student_id: int,student_req: StudentCreateRequest,db: AsyncSession = Depends(get_db),):
+    stmt = (
+        update(Student)
+        .where(Student.s_id == student_id)
+        .values(s_name=student_req.name,s_email=student_req.email)
+    )
+
+    result = await db.execute(stmt)
+
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    return {"message": "Student updated successfully"}
+
+
+# @app.delete("/students/{student_id}", tags=[Tags.students])
+# async def delete_student(student_id: int,db: AsyncSession = Depends(get_db),):
+#     stmt = delete(Student).where(Student.s_id == student_id)
+
+#     result = await db.execute(stmt)
+
+#     if result.rowcount == 0:
+#         raise HTTPException(status_code=404, detail="Student not found")
+
+#     return {"message": "Student deleted successfully"}
+
     
 @app.delete("/students/{student_id}", tags=[Tags.students])
-async def remove_student(student_id: int, db:AsyncSession=Depends(get_db)):
-    result = await db.execute(select(Student).where(Student.s_id == student_id))
-    student = result.scalar_one_or_none()
+async def remove_student_cascade(student_id: int, db:AsyncSession=Depends(get_db)):
+    student = await db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
     await db.delete(student)
@@ -288,11 +334,11 @@ async def get_faculty(faculty_id: int, db:AsyncSession = Depends(get_db)) -> Fac
 
 
 @app.post("/faculties/", tags=[Tags.faculties], status_code=201)
-async def create_faculties(faculty_req: FacultyCreateRequest, db: AsyncSession = Depends(get_db)) -> FacultyReadResponse:
+async def create_faculties(faculty_req: FacultyCreateRequest, db: AsyncSession = Depends(get_db)) :
     db_faculty = Faculty(f_name = faculty_req.name)
     db.add(db_faculty)
-    await db.flush()
-    await db.refresh(db_faculty)
+    # await db.flush()
+    # await db.refresh(db_faculty)
     return db_faculty
 
 @app.delete("/faculty/{faculty_id}", tags=[Tags.faculties])
@@ -312,12 +358,12 @@ async def remove_facuty(faculty_id: int, db:AsyncSession=Depends(get_db)):
 # courses
 
 @app.post("/courses/", tags=[Tags.courses],  status_code=201)
-async def create_course(course_req: CourseCreateRequest, db: AsyncSession = Depends(get_db)) -> CourseReadResponse:
+async def create_course(course_req: CourseCreateRequest, db: AsyncSession = Depends(get_db)) :
     db_course = Course(c_name = course_req.name, student_id = course_req.s_id, faculty_id = course_req.f_id)
     db.add(db_course)
     # await db.commit()
-    await db.flush()
-    await db.refresh(db_course)
+    # await db.flush()
+    # await db.refresh(db_course)
     return db_course
 
 @app.get("/courses/", tags=[Tags.courses])
@@ -349,12 +395,12 @@ class AssociationReadResponse(BaseModel):
     faculty_id:int
 
 @app.post("/association/", tags=[Tags.associations],  status_code=201)
-async def create_course(asso_req: AssociationCreateRequest, db: AsyncSession = Depends(get_db)) -> AssociationReadResponse:
+async def create_course(asso_req: AssociationCreateRequest, db: AsyncSession = Depends(get_db)):
     db_asso = Association(student_id = asso_req.s_id, faculty_id = asso_req.f_id)
     db.add(db_asso)
     # await db.commit()
-    await db.flush()
-    await db.refresh(db_asso)
+    # await db.flush()
+    # await db.refresh(db_asso)
     return db_asso
 
 

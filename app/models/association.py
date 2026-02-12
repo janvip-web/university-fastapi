@@ -11,8 +11,8 @@ class Association(Base):
     __tablename__ = "association_table"
 
     association_id: Mapped[int] = mapped_column(primary_key=True)
-    student_id: Mapped[int] = mapped_column(ForeignKey("students.s_id"))
-    faculty_id: Mapped[int] = mapped_column(ForeignKey("faculties.f_id"))
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.s_id", ondelete="CASCADE", onupdate="CASCADE"))
+    faculty_id: Mapped[int] = mapped_column(ForeignKey("faculties.f_id", ondelete="CASCADE", onupdate="CASCADE"))
 
     student: Mapped["Student"] = relationship("Student", back_populates="faculty_associations")
     faculty: Mapped["Faculty"] = relationship("Faculty", back_populates="student_associations")

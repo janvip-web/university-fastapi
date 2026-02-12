@@ -23,10 +23,11 @@ class Student(Base):
     This does NOT hit the database immediately   
     """
     # one to many between student and course
-    courses: Mapped[list["Course"]] = relationship("Course", back_populates="student")
+    courses: Mapped[list["Course"]] = relationship("Course", back_populates="student", passive_deletes=True)
 
     #many to many between student and faculty
     # faculties: Mapped[list["Faculty"]] = relationship(secondary="association_table", back_populates="students", viewonly=True)
 
     # association between student -> association -> faculty
-    faculty_associations: Mapped[list["Association"]] = relationship("Association",back_populates="student")
+    faculty_associations: Mapped[list["Association"]] = relationship("Association",back_populates="student", cascade="all, delete-orphan", passive_deletes=True)
+# configure cascade="all, delete" on the parent->child side of the relationship
